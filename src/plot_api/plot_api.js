@@ -1949,6 +1949,7 @@ function axRangeSupplyDefaultsByPass(gd, flags, specs) {
         axOut.range = axIn.range.slice();
         axOut.cleanRange();
 
+        // TODO could be slow!!
         for(var i = 0; i < axisMatchGroups.length; i++) {
             var group = axisMatchGroups[i];
             if(group[axId]) {
@@ -1979,6 +1980,8 @@ function addAxRangeSequence(seq, rangesAltered) {
                 var ax = Axes.getFromId(gd, id);
                 axIds.push(id);
 
+                // TODO could be slow!!
+                // ...  maybe combine with loop in axRangeSupplyDefaultsByPass
                 for(var i = 0; i < matchGroups.length; i++) {
                     var group = matchGroups[i];
                     if(group[id]) {
