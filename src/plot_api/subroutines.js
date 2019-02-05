@@ -708,8 +708,6 @@ exports.doAutoRangeAndConstraints = function(gd) {
         doAutoRange(gd, ax);
     }
 
-    enforceAxisConstraints(gd);
-
     groupLoop:
     for(var j = 0; j < matchGroups.length; j++) {
         var group = matchGroups[j];
@@ -740,6 +738,8 @@ exports.doAutoRangeAndConstraints = function(gd) {
             ax.setScale();
         }
     }
+
+    enforceAxisConstraints(gd);
 };
 
 // An initial paint must be completed before these components can be

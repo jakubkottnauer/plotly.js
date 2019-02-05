@@ -203,6 +203,7 @@ exports.enforce = function enforceAxisConstraints(gd) {
         var matchScale = Infinity;
         var normScales = {};
         var axes = {};
+        var axesDone = {};
         var hasAnyDomainConstraint = false;
 
         // find the (normalized) scale of each axis in the group
@@ -239,6 +240,8 @@ exports.enforce = function enforceAxisConstraints(gd) {
         // now increase any ranges we need to until all normalized scales are equal
         for(j = 0; j < axisIDs.length; j++) {
             axisID = axisIDs[j];
+            if(axesDone[axisID]) continue;
+
             normScale = normScales[axisID];
             ax = axes[axisID];
             mode = ax.constrain;
@@ -277,60 +280,57 @@ exports.enforce = function enforceAxisConstraints(gd) {
                         factor *= rangeShrunk;
                     }
 
+                    /*
+                     * range & factor may need to change because range was
+                     * calculated for the larger scaling, so some pixel
+                     * paddings may get cut off when we reduce the domain.
+                     *
+                     * This is easier than the regular autorange calculation
+                     * because we already know the scaling `m`, but we still
+                     * need to cut out impossible constraints (like
+                     * annotations with super-long arrows). That's what
+                     * outerMin/Max are for - if the expansion was going to
+                     * go beyond the original domain, it must be impossible
+                     */
                     if(ax.autorange) {
-                        /*
-                         * range & factor may need to change because range was
-                         * calculated for the larger scaling, so some pixel
-                         * paddings may get cut off when we reduce the domain.
-                         *
-                         * This is easier than the regular autorange calculation
-                         * because we already know the scaling `m`, but we still
-                         * need to cut out impossible constraints (like
-                         * annotations with super-long arrows). That's what
-                         * outerMin/Max are for - if the expansion was going to
-                         * go beyond the original domain, it must be impossible
-                         */
                         var rl0 = ax.r2l(ax.range[0]);
                         var rl1 = ax.r2l(ax.range[1]);
                         var rangeCenter = (rl0 + rl1) / 2;
-                        var rangeMin = rangeCenter;
-                        var rangeMax = rangeCenter;
                         var halfRange = Math.abs(rl1 - rangeCenter);
-                        // extra tiny bit for rounding errors, in case we actually
-                        // *are* expanding to the full domain
-                        var outerMin = rangeCenter - halfRange * factor * 1.0001;
-                        var outerMax = rangeCenter + halfRange * factor * 1.0001;
-                        var getPad = makePadFn(ax);
+                        var axisID2, ax2;
+                        var rng;
 
-                        updateDomain(ax, factor);
-                        var m = Math.abs(ax._m);
-                        var extremes = concatExtremes(gd, ax);
-                        var minArray = extremes.min;
-                        var maxArray = extremes.max;
-                        var newVal;
-                        var k;
+                        if(ax._matchGroup) {
+                            rng = [Infinity, -Infinity];
 
-                        for(k = 0; k < minArray.length; k++) {
-                            newVal = minArray[k].val - getPad(minArray[k]) / m;
-                            if(newVal > outerMin && newVal < rangeMin) {
-                                rangeMin = newVal;
+                            for(axisID2 in ax._matchGroup) {
+                                ax2 = fullLayout[id2name(axisID2)];
+                                var factor2 = normScales[axisID2] / matchScale;
+                                var rng2 = findAutoRange(gd, ax2, factor2);
+                                rng[0] = Math.min(rng[0], rng2[0]);
+                                rng[1] = Math.max(rng[1], rng2[1]);
                             }
+                        } else {
+                            rng = findAutoRange(gd, ax, factor);
                         }
 
-                        for(k = 0; k < maxArray.length; k++) {
-                            newVal = maxArray[k].val + getPad(maxArray[k]) / m;
-                            if(newVal < outerMax && newVal > rangeMax) {
-                                rangeMax = newVal;
+                        var domainExpand = (rng[1] - rng[0]) / (2 * halfRange);
+                        var rangeMin = ax.l2r(rng[0]);
+                        var rangeMax = ax.l2r(rng[1]);
+                        var range = (rl0 < rl1) ? [rangeMin, rangeMax] : [rangeMax, rangeMin];
+
+                        if(ax._matchGroup) {
+                            for(axisID2 in ax._matchGroup) {
+                                ax2 = fullLayout[id2name(axisID2)];
+                                ax2.range = ax2._input.range = range.slice();
+                                updateDomain(ax2, normScales[axisID2] / matchScale / domainExpand);
+                                axesDone[axisID2] = 1;
                             }
+                            continue;
+                        } else {
+                            ax.range = ax._input.range = range.slice();
+                            factor /= domainExpand;
                         }
-
-                        var domainExpand = (rangeMax - rangeMin) / (2 * halfRange);
-                        factor /= domainExpand;
-
-                        rangeMin = ax.l2r(rangeMin);
-                        rangeMax = ax.l2r(rangeMax);
-                        ax.range = ax._input.range = (rl0 < rl1) ?
-                            [rangeMin, rangeMax] : [rangeMax, rangeMin];
                     }
 
                     updateDomain(ax, factor);
@@ -370,4 +370,43 @@ function updateDomain(ax, factor) {
         center + (inputDomain[1] - center) / factor
     ];
     ax.setScale();
+}
+
+function findAutoRange(gd, ax, factor) {
+    var rl0 = ax.r2l(ax.range[0]);
+    var rl1 = ax.r2l(ax.range[1]);
+    var rangeCenter = (rl0 + rl1) / 2;
+    var rangeMin = rangeCenter;
+    var rangeMax = rangeCenter;
+    var halfRange = Math.abs(rl1 - rangeCenter);
+
+    // extra tiny bit for rounding errors, in case we actually
+    // *are* expanding to the full domain
+    var outerMin = rangeCenter - halfRange * factor * 1.0001;
+    var outerMax = rangeCenter + halfRange * factor * 1.0001;
+    var getPad = makePadFn(ax);
+
+    updateDomain(ax, factor);
+    var m = Math.abs(ax._m);
+    var extremes = concatExtremes(gd, ax);
+    var minArray = extremes.min;
+    var maxArray = extremes.max;
+    var newVal;
+    var k;
+
+    for(k = 0; k < minArray.length; k++) {
+        newVal = minArray[k].val - getPad(minArray[k]) / m;
+        if(newVal > outerMin && newVal < rangeMin) {
+            rangeMin = newVal;
+        }
+    }
+
+    for(k = 0; k < maxArray.length; k++) {
+        newVal = maxArray[k].val + getPad(maxArray[k]) / m;
+        if(newVal < outerMax && newVal > rangeMax) {
+            rangeMax = newVal;
+        }
+    }
+
+    return [rangeMin, rangeMax];
 }
