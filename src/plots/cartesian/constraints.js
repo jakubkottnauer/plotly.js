@@ -58,6 +58,7 @@ exports.handleConstraintDefaults = function(containerIn, containerOut, coerce, a
         }
     }, 'matches');
 
+    // TODO could do better!
     // disallow constraining AND matching range
     if(constrain === 'range' && scaleanchor === matches) {
         delete containerOut.scaleanchor;
